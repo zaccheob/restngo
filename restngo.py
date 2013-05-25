@@ -5,6 +5,7 @@ import os
 import re
 import cgi
 import json
+import http.client
 import urllib.parse
 import logging
 logger = logging.getLogger(__name__)
@@ -51,41 +52,50 @@ class REST():
 		return write_data(resource)
 
 
-	def manage_request(self):
-		request_method = os.environ.get("REQUEST_METHOD")
-		request_url = os.environ.get("REQUEST_URI")
+	def application(self, environ, start_response):
+		sys.stderr.write(repr(environ))
+		sys.stderr.write("\n")
+		request_method = environ.get("REQUEST_METHOD")
+		request_url = environ.get("PATH_INFO")
 		try:
 			if request_method not in self.REQUEST_METHODS:
 				raise RESTError("Unhandled REQUEST_METHOD {0}".format(request_method))
 
+			out = None
+			status = None
+			headers = [('Content-type', self.representation_content_type)]
+
 			for (url_regexp, resource_provider) in self.registered_urls[request_method]:
 				mo = re.match(request_url, url_regexp)
 				if mo:
-					if request_method in ('POST', 'PUT') and os.environ.get('CONTENT_TYPE') != None:
+					if request_method in ('POST', 'PUT') and environ.get('CONTENT_TYPE') != None:
 						#This methods can send data
-						data = self.readREpresentation(os.environ.get('CONTENT_TYPE'))
+						data = self.readREpresentation(environ.get('CONTENT_TYPE'))
 					else:
 						data = None
 					resource = resource_provider(request_method, mo.groups(), data)
 					out = self.writeREpresentation(resource, self.representation_content_type)
-					sys.stdout.write("Content-type: {0}\n\n".format(self.representation_content_type))
-					print(out)
-					return
+					status = 200
 
-			raise RESTError("Resource {0} not found for method {1}".format(request_url, request_method), http_status=404)
+			if status == None:
+				raise RESTError("Resource {0} not found for method {1}".format(request_url, request_method), http_status=404)
 
 		except RESTError as err:
-			sys.stdout.write("Status:{0}\nContent-type: {1}\n\n".format(err.http_status, self.representation_content_type))
-			print(self.writeREpresentation(str(err), self.representation_content_type))
+			status = err.http_status
+			out = self.writeREpresentation(str(err), self.representation_content_type)
 			
 		except Exception as err:
-			sys.stdout.write("Status:400\nContent-type: {0}\n\n".format(self.representation_content_type))
-			print(self.writeREpresentation(str(err), self.representation_content_type))
+			status = 400
+			out = self.writeREpresentation(str(err), self.representation_content_type)
+
+		headers.append(("Content-length", str(len(out))))
+		start_response("{0} {1}".format(status, http.client.responses[status]), headers)
+		return [out]
 	
 
 
 def JSONWriter(data):
-	return json.dumps(data)
+	return json.dumps(data).encode('UTF8')
 register_content_type_writer('application/json', JSONWriter)
 
 def JSONReader():

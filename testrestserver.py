@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 
-import rest
+import restngo
 import logging
 import os
 from cgi import FieldStorage, MiniFieldStorage
+from wsgiref.simple_server import make_server
 
 
 def test(m, urlcomponents, data):
@@ -27,14 +28,16 @@ def main():
 	lh.setFormatter(lf)
 	logger.addHandler(lh)
 
-	r = rest.REST()
+	r = restngo.REST()
 	r.registerURL("/test", "GET", test)
 	r.registerURL("/test", "POST", test)
 	r.registerURL("/test", "PUT", test)
 	r.registerURL("/test", "DELETE", test)
 	r.registerURL("/env", "POST", env)
 
-	r.manage_request()
+	
+	httpd = make_server('localhost', 8080, r.application)
+	httpd.serve_forever()
 
 if __name__ == '__main__':
 	main()
